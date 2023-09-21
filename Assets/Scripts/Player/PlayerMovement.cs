@@ -46,6 +46,7 @@ public class PlayerMovement : MonoBehaviour
     [Header("SlopeHandling")]
     [SerializeField] public float m_maxSlopeAngle;
     private RaycastHit m_slopeHit;
+    private bool exitSlope;
 
     [Header("KeyBinds")]
     [SerializeField] private KeyCode m_jumpKey = KeyCode.Space;
@@ -54,8 +55,6 @@ public class PlayerMovement : MonoBehaviour
 
     private float m_horizontalInput;
     private float m_verticalInput;
-
-    
 
     private Rigidbody m_rigidbody;
     #endregion
@@ -156,30 +155,58 @@ public class PlayerMovement : MonoBehaviour
         // calculate direction
         m_moveDir = m_orientation.forward * m_verticalInput + m_orientation.right * m_horizontalInput;
 
-        if(m_isGround == true)
+        // on slope
+        if(OnSlope() == true && !exitSlope)
+        {
+            m_rigidbody.AddForce(GetSlopeMoveDirection() * m_moveSpeed * 20f, ForceMode.Force);
+
+            if(m_rigidbody.velocity.y > 0)
+            {
+                m_rigidbody.AddForce(Vector3.down * 80f, ForceMode.Force);
+            }
+        }
+        // on ground
+        else if(m_isGround == true)
         {
             m_rigidbody.AddForce(m_moveDir.normalized * m_moveSpeed * 10f, ForceMode.Force);
         }
+        // in air
         else if(m_isGround == false)
         {
             m_rigidbody.AddForce(m_moveDir.normalized * m_moveSpeed * 10f * m_airMultiplier, ForceMode.Force);
         }
+
+        // turn gravity off while on slope
+        m_rigidbody.useGravity = !OnSlope();
     }
 
     private void ControlSpeed()
     {
-        Vector3 flatVelocity = new Vector3(m_rigidbody.velocity.x, 0f, m_rigidbody.velocity.z);
-
-        // limit velocity if needed
-        if(flatVelocity.magnitude > m_moveSpeed)
+        // limiting speed on slope
+        if (OnSlope() && !exitSlope)
         {
-            Vector3 limitedVelocity = flatVelocity.normalized * m_moveSpeed;
-            m_rigidbody.velocity = new Vector3(limitedVelocity.x, m_rigidbody.velocity.y, limitedVelocity.z);
+            if (m_rigidbody.velocity.magnitude > m_moveSpeed)
+            {
+                m_rigidbody.velocity = m_rigidbody.velocity.normalized * m_moveSpeed;
+            }
+        }
+        // limiting speed on ground or in air
+        else
+        {
+            Vector3 flatVelocity = new Vector3(m_rigidbody.velocity.x, 0f, m_rigidbody.velocity.z);
+
+            if (flatVelocity.magnitude > m_moveSpeed)
+            {
+                Vector3 limitVelocity = flatVelocity.normalized * m_moveSpeed;
+                m_rigidbody.velocity = new Vector3(limitVelocity.x, m_rigidbody.velocity.y, limitVelocity.z);
+            }
         }
     }
 
     private void Jump()
     {
+        exitSlope = true;
+
         // reset y velocity
         m_rigidbody.velocity = new Vector3(m_rigidbody.velocity.x, 0f, m_rigidbody.velocity.z);
 
@@ -187,7 +214,7 @@ public class PlayerMovement : MonoBehaviour
     }
 
     private bool OnSlope()
-    {   
+    {
         // if you on slope
         if (Physics.Raycast(transform.position, Vector3.down, out m_slopeHit, m_playerHeight * 0.5f + 0.3f))
         {
@@ -206,6 +233,8 @@ public class PlayerMovement : MonoBehaviour
     private void ResetJump()
     {
         m_readyJump = true;
+
+        exitSlope = false;
     }
     #endregion
 }
