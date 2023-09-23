@@ -302,7 +302,7 @@ public class PlayerMovement : MonoBehaviour
 {
     public enum MOVEMENT_STATE
     {
-        Walking, Sprinting, Crouching, Air
+        Walking, Sprinting, Crouching, Sliding, Air
     }
 
     #region PublicVariables
@@ -316,6 +316,10 @@ public class PlayerMovement : MonoBehaviour
     private float m_moveSpeed;
     [SerializeField] private float m_walkSpeed;
     [SerializeField] private float m_sprintSpeed;
+    [SerializeField] private float m_slideSpeed;
+
+    private float m_desiredMoveSpeed;
+    private float m_lastDesireMoveSpeed;
 
     [SerializeField] private Transform m_orientation;
     private Vector3 m_moveDir;
@@ -339,6 +343,8 @@ public class PlayerMovement : MonoBehaviour
     [Header("Sliding")]
     [SerializeField] private float m_slidingSpeed;
     [SerializeField] private bool m_isSliding = false;
+    [SerializeField] private float m_maxSlideTime;
+    [SerializeField] private float m_curSlideTime;
 
 
     [Header("SlopeHandling")]
@@ -393,38 +399,72 @@ public class PlayerMovement : MonoBehaviour
     private void FixedUpdate()
     {
         MovePlayer();
+
+        if(m_isSliding == true)
+        {
+            SlidingMovement();
+        }
+
     }
     #endregion
 
     #region PrivateMethod
     private void StateHandler()
     {
+        if (m_isSliding == true)
+        {
+            m_movementState = MOVEMENT_STATE.Sliding;
 
+            if (OnSlope() && m_rigidbody.velocity.y < 0.1f)
+            {
+                if (m_rigidbody.velocity.magnitude > m_slidingSpeed)
+                    m_desiredMoveSpeed = m_slideSpeed;
+                else
+                    m_desiredMoveSpeed = m_slidingSpeed;
+            }
+            else
+            {
+                m_desiredMoveSpeed = m_sprintSpeed;
+            }
+        }
         // Mode - Crouching
-        if (Input.GetKey(m_crouchKey))
+        else if (Input.GetKey(m_crouchKey))
         {
             m_movementState = MOVEMENT_STATE.Crouching;
-            m_moveSpeed = m_crouchSpeed;
+            m_desiredMoveSpeed = m_crouchSpeed;
         }
         // Mode - Sprinting
         else if (m_isGround == true && Input.GetKey(m_sprintKey))
         {
             m_movementState = MOVEMENT_STATE.Sprinting;
-            m_moveSpeed = m_sprintSpeed;
+            m_desiredMoveSpeed = m_sprintSpeed;
         }
         // Mode - Walking
         else if (m_isGround == true)
         {
             m_movementState = MOVEMENT_STATE.Walking;
-            m_moveSpeed = m_walkSpeed;
+            m_desiredMoveSpeed = m_walkSpeed;
         }
         //Mode - Air
         else
         {
             m_movementState = MOVEMENT_STATE.Air;
         }
-    }
-    private void CallInput()
+
+        // check if desireMoveSpeed has changed drastically
+        if (Mathf.Abs(m_desiredMoveSpeed - m_lastDesireMoveSpeed) > 4f && m_moveSpeed != 0)
+        {
+            StopAllCoroutines();
+            StartCoroutine(SmoothlyLerpMoveSpeed());
+        }
+        else
+        {
+            m_moveSpeed = m_desiredMoveSpeed;
+        }
+
+        m_lastDesireMoveSpeed = m_desiredMoveSpeed;
+}
+private void CallInput()
     {
         m_horizontalInput = Input.GetAxisRaw("Horizontal");
         m_verticalInput = Input.GetAxisRaw("Vertical");
@@ -443,11 +483,21 @@ public class PlayerMovement : MonoBehaviour
         {
             transform.localScale = new Vector3(transform.localScale.x, m_crouchYScale, transform.localScale.z);
             m_rigidbody.AddForce(Vector3.down * 10f, ForceMode.Impulse);
+
+            if (m_rigidbody.velocity.magnitude >= 6)
+            {
+                StartSlide();
+            }
         }
 
         if (Input.GetKeyUp(m_crouchKey))
         {
             transform.localScale = new Vector3(transform.localScale.x, m_startYScale, transform.localScale.z);
+
+            if(m_isSliding == true)
+            {
+                StopSlide();
+            }
         }
     }
 
@@ -459,7 +509,7 @@ public class PlayerMovement : MonoBehaviour
         // on slope
         if (OnSlope() == true && !exitSlope)
         {
-            m_rigidbody.AddForce(GetSlopeMoveDirection() * m_moveSpeed * 20f, ForceMode.Force);
+            m_rigidbody.AddForce(GetSlopeMoveDirection(m_moveDir) * m_moveSpeed * 20f, ForceMode.Force);
 
             if (m_rigidbody.velocity.y > 0)
             {
@@ -481,6 +531,41 @@ public class PlayerMovement : MonoBehaviour
         m_rigidbody.useGravity = !OnSlope();
     }
 
+    private void StartSlide()
+    {
+        m_isSliding = true;
+
+        m_curSlideTime = m_maxSlideTime;
+    }
+
+    private void StopSlide()
+    {
+        m_isSliding = false;
+    }
+
+    private void SlidingMovement()
+    {
+        Vector3 inputDir = m_orientation.forward * m_verticalInput + m_orientation.right * m_horizontalInput;
+
+        // sliding normal
+        if (!OnSlope() || m_rigidbody.velocity.y > -0.1f)
+        {
+            m_rigidbody.AddForce(inputDir.normalized * m_slidingSpeed, ForceMode.Force);
+
+            m_curSlideTime -= Time.deltaTime;
+        }
+        // sliding slope
+        else
+        {
+            m_rigidbody.AddForce(GetSlopeMoveDirection(inputDir) * m_slidingSpeed, ForceMode.Force);
+        }
+
+        if(m_curSlideTime < 0)
+        {
+            StopSlide();
+        }
+    }
+
     private void ControlSpeed()
     {
         // limiting speed on slope
@@ -495,8 +580,12 @@ public class PlayerMovement : MonoBehaviour
         else
         {
             Vector3 flatVelocity = new Vector3(m_rigidbody.velocity.x, 0f, m_rigidbody.velocity.z);
-
-            if (flatVelocity.magnitude > m_moveSpeed)
+            if(m_isSliding == true)
+            {
+                Vector3 limitVelocity = flatVelocity.normalized * m_slidingSpeed;
+                m_rigidbody.velocity = new Vector3(limitVelocity.x, m_rigidbody.velocity.y, limitVelocity.z);
+            }
+            else if (flatVelocity.magnitude > m_moveSpeed)
             {
                 Vector3 limitVelocity = flatVelocity.normalized * m_moveSpeed;
                 m_rigidbody.velocity = new Vector3(limitVelocity.x, m_rigidbody.velocity.y, limitVelocity.z);
@@ -526,9 +615,9 @@ public class PlayerMovement : MonoBehaviour
         return false;
     }
 
-    private Vector3 GetSlopeMoveDirection()
+    private Vector3 GetSlopeMoveDirection(Vector3 _direciton)
     {
-        return Vector3.ProjectOnPlane(m_moveDir, m_slopeHit.normal).normalized;
+        return Vector3.ProjectOnPlane(_direciton, m_slopeHit.normal).normalized;
     }
 
     private void ResetJump()
@@ -536,6 +625,22 @@ public class PlayerMovement : MonoBehaviour
         m_readyJump = true;
 
         exitSlope = false;
+    }
+
+    private IEnumerator SmoothlyLerpMoveSpeed()
+    {
+        float time = 0;
+        float diff = Mathf.Abs(m_desiredMoveSpeed - m_moveSpeed);
+        float startValue = m_moveSpeed;
+
+        while (time < diff)
+        {
+            m_moveSpeed = Mathf.Lerp(startValue, m_desiredMoveSpeed, time / diff);
+            time += Time.deltaTime;
+            yield return null;
+        }
+
+        m_moveSpeed = m_desiredMoveSpeed;
     }
     #endregion
 }

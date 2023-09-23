@@ -6558,6 +6558,7 @@ MonoBehaviour:
   m_movementState: 0
   m_walkSpeed: 5
   m_sprintSpeed: 8
+  m_slideSpeed: 40
   m_orientation: {fileID: 686499967}
   m_playerHeight: 2
   m_groundLayer:
@@ -6571,8 +6572,10 @@ MonoBehaviour:
   m_crouchSpeed: 3
   m_crouchYScale: 0.5
   m_startYScale: 0
-  m_slidingSpeed: 0
+  m_slidingSpeed: 12
   m_isSliding: 0
+  m_maxSlideTime: 0.75
+  m_curSlideTime: 0
   m_maxSlopeAngle: 45
   m_jumpKey: 32
   m_sprintKey: 304
