@@ -346,7 +346,6 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private float m_maxSlideTime;
     [SerializeField] private float m_curSlideTime;
 
-
     [Header("SlopeHandling")]
     [SerializeField] public float m_maxSlopeAngle;
     private RaycastHit m_slopeHit;
@@ -356,6 +355,7 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private KeyCode m_jumpKey = KeyCode.Space;
     [SerializeField] private KeyCode m_sprintKey = KeyCode.LeftShift;
     [SerializeField] private KeyCode m_crouchKey = KeyCode.LeftControl;
+    [SerializeField] private KeyCode m_swingKey = KeyCode.Q;
 
     private float m_horizontalInput;
     private float m_verticalInput;
@@ -499,6 +499,16 @@ private void CallInput()
                 StopSlide();
             }
         }
+
+        if (Input.GetKeyDown(m_swingKey))
+        {
+            StartSwing();
+        }
+
+        if (Input.GetKeyUp(m_swingKey))
+        {
+            StopSwing();
+        }
     }
 
     private void MovePlayer()
@@ -625,6 +635,16 @@ private void CallInput()
         m_readyJump = true;
 
         exitSlope = false;
+    }
+
+    private void StartSwing()
+    {
+
+    }
+
+    private void StopSwing()
+    {
+
     }
 
     private IEnumerator SmoothlyLerpMoveSpeed()
