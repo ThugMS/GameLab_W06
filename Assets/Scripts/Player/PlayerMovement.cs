@@ -302,21 +302,25 @@ public class PlayerMovement : MonoBehaviour
 {
     public enum MOVEMENT_STATE
     {
-        Walking, Sprinting, Crouching, Sliding, Air
+        Freeze, Walking, Sprinting, Swinging, Crouching, Sliding, Air
     }
 
     #region PublicVariables
     public float m_groundDrag;
-
+    public bool m_isSwinging;
+    public bool m_isSwingPressed = false;
     public MOVEMENT_STATE m_movementState;
+    public bool m_isFreeze = false;
+    public bool m_actvieGrapple = false;
     #endregion
 
     #region PrivateVariables
     [Header("Movement")]
-    private float m_moveSpeed;
+    [SerializeField] private float m_moveSpeed;
     [SerializeField] private float m_walkSpeed;
     [SerializeField] private float m_sprintSpeed;
     [SerializeField] private float m_slideSpeed;
+    [SerializeField] private float m_swingSpeed;
 
     private float m_desiredMoveSpeed;
     private float m_lastDesireMoveSpeed;
@@ -355,7 +359,10 @@ public class PlayerMovement : MonoBehaviour
     [SerializeField] private KeyCode m_jumpKey = KeyCode.Space;
     [SerializeField] private KeyCode m_sprintKey = KeyCode.LeftShift;
     [SerializeField] private KeyCode m_crouchKey = KeyCode.LeftControl;
-    [SerializeField] private KeyCode m_swingKey = KeyCode.Q;
+
+    [Header("Grapple")]
+    private Vector3 m_velocityToSet;
+    private bool m_enableMoveOnNextTouch;
 
     private float m_horizontalInput;
     private float m_verticalInput;
@@ -379,12 +386,17 @@ public class PlayerMovement : MonoBehaviour
         // ground check
         m_isGround = Physics.Raycast(transform.position, Vector3.down, m_playerHeight * 0.5f + 0.2f, m_groundLayer);
 
+        if (m_isGround == true && m_isSwingPressed == false && m_isSwinging == true)
+        {
+            m_isSwinging = false;
+        }
+
         CallInput();
         ControlSpeed();
-        StateHandler();
+        StateHandler();    
 
         // drag handle
-        if (m_isGround == true)
+        if (m_isGround == true && !m_actvieGrapple)
         {
             m_rigidbody.drag = m_groundDrag;
         }
@@ -394,7 +406,7 @@ public class PlayerMovement : MonoBehaviour
         }
 
         m_speedText.text = "Speed  :  " + Mathf.Round(m_rigidbody.velocity.magnitude);
-    }
+      }
 
     private void FixedUpdate()
     {
@@ -406,12 +418,33 @@ public class PlayerMovement : MonoBehaviour
         }
 
     }
+
+    public void JumpToPosition(Vector3 _targetPosition, float _trajectoryHeight)
+    {
+        m_actvieGrapple = true;
+
+        m_velocityToSet = CalculateJumpVelocity(transform.position, _targetPosition, _trajectoryHeight);
+        Invoke(nameof(SetVelocity), 0.1f);
+
+        Invoke(nameof(ResetRestrictions), 3f);
+    }
+
+    public void ResetRestrictions()
+    {
+        m_actvieGrapple = false;
+    }
     #endregion
 
     #region PrivateMethod
     private void StateHandler()
-    {
-        if (m_isSliding == true)
+    {   
+        if(m_isFreeze == true)
+        {
+            m_movementState = MOVEMENT_STATE.Freeze;
+            m_desiredMoveSpeed = 0;
+            m_rigidbody.velocity = Vector3.zero;
+        }
+        else if (m_isSliding == true)
         {
             m_movementState = MOVEMENT_STATE.Sliding;
 
@@ -426,6 +459,12 @@ public class PlayerMovement : MonoBehaviour
             {
                 m_desiredMoveSpeed = m_sprintSpeed;
             }
+        }
+        // Mode - Swinging
+        else if(m_isSwinging == true)
+        {
+            m_movementState = MOVEMENT_STATE.Swinging;
+            m_desiredMoveSpeed = m_swingSpeed;
         }
         // Mode - Crouching
         else if (Input.GetKey(m_crouchKey))
@@ -451,16 +490,18 @@ public class PlayerMovement : MonoBehaviour
             m_movementState = MOVEMENT_STATE.Air;
         }
 
+        m_moveSpeed = m_desiredMoveSpeed;
+
         // check if desireMoveSpeed has changed drastically
-        if (Mathf.Abs(m_desiredMoveSpeed - m_lastDesireMoveSpeed) > 4f && m_moveSpeed != 0)
-        {
-            StopAllCoroutines();
-            StartCoroutine(SmoothlyLerpMoveSpeed());
-        }
-        else
-        {
-            m_moveSpeed = m_desiredMoveSpeed;
-        }
+        //if (Mathf.Abs(m_desiredMoveSpeed - m_lastDesireMoveSpeed) > 4f && m_moveSpeed != 0)
+        //{
+        //    StopAllCoroutines();
+        //    StartCoroutine(SmoothlyLerpMoveSpeed());
+        //}
+        //else
+        //{
+        //    m_moveSpeed = m_desiredMoveSpeed;
+        //}
 
         m_lastDesireMoveSpeed = m_desiredMoveSpeed;
 }
@@ -500,19 +541,13 @@ private void CallInput()
             }
         }
 
-        if (Input.GetKeyDown(m_swingKey))
-        {
-            StartSwing();
-        }
-
-        if (Input.GetKeyUp(m_swingKey))
-        {
-            StopSwing();
-        }
     }
 
     private void MovePlayer()
     {
+        if (m_isSwinging == true)
+            return;
+
         // calculate direction
         m_moveDir = m_orientation.forward * m_verticalInput + m_orientation.right * m_horizontalInput;
 
@@ -578,6 +613,8 @@ private void CallInput()
 
     private void ControlSpeed()
     {
+        if (m_actvieGrapple == true)
+            return;
         // limiting speed on slope
         if (OnSlope() && !exitSlope)
         {
@@ -596,11 +633,22 @@ private void CallInput()
                 m_rigidbody.velocity = new Vector3(limitVelocity.x, m_rigidbody.velocity.y, limitVelocity.z);
             }
             else if (flatVelocity.magnitude > m_moveSpeed)
-            {
-                Vector3 limitVelocity = flatVelocity.normalized * m_moveSpeed;
-                m_rigidbody.velocity = new Vector3(limitVelocity.x, m_rigidbody.velocity.y, limitVelocity.z);
+            {   
+                if(m_isSwinging == false)
+                {
+                    Vector3 limitVelocity = flatVelocity.normalized * m_moveSpeed;
+                    m_rigidbody.velocity = new Vector3(limitVelocity.x, m_rigidbody.velocity.y, limitVelocity.z);
+                }
             }
         }
+    }
+
+    
+
+    private void SetVelocity()
+    {
+        m_enableMoveOnNextTouch = true;
+        m_rigidbody.velocity = m_velocityToSet;
     }
 
     private void Jump()
@@ -637,16 +685,6 @@ private void CallInput()
         exitSlope = false;
     }
 
-    private void StartSwing()
-    {
-
-    }
-
-    private void StopSwing()
-    {
-
-    }
-
     private IEnumerator SmoothlyLerpMoveSpeed()
     {
         float time = 0;
@@ -655,12 +693,36 @@ private void CallInput()
 
         while (time < diff)
         {
-            m_moveSpeed = Mathf.Lerp(startValue, m_desiredMoveSpeed, time / diff);
+            m_moveSpeed = Mathf.Lerp(startValue, m_desiredMoveSpeed, time / diff  * 3);
             time += Time.deltaTime;
             yield return null;
         }
 
         m_moveSpeed = m_desiredMoveSpeed;
+    }
+
+    public Vector3 CalculateJumpVelocity(Vector3 startPoint, Vector3 endPoint, float trajectoryHeight)
+    {
+        float gravity = Physics.gravity.y;
+        float displacementY = endPoint.y - startPoint.y;
+        Vector3 displacementXZ = new Vector3(endPoint.x - startPoint.x, 0f, endPoint.z - startPoint.z);
+
+        Vector3 velocityY = Vector3.up * Mathf.Sqrt(-2 * gravity * trajectoryHeight);
+        Vector3 velocityXZ = displacementXZ / (Mathf.Sqrt(-2 * trajectoryHeight / gravity)
+            + Mathf.Sqrt(2 * (displacementY - trajectoryHeight) / gravity));
+
+        return velocityXZ + velocityY;
+    }
+
+    private void OnCollisionEnter(Collision collision)
+    {
+        if(m_enableMoveOnNextTouch == true)
+        {
+            m_enableMoveOnNextTouch = false;
+            ResetRestrictions();
+
+            GetComponent<Grappling>().StopGrapple();
+        }
     }
     #endregion
 }
